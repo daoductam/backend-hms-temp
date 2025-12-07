@@ -12,6 +12,7 @@
         <module name="Eureaka-Server" />
         <module name="payment-ms" />
         <module name="hms-common" />
+        <module name="demo" />
       </profile>
       <profile name="Annotation profile for NotificationMS" enabled="true">
         <sourceOutputDir name="target/generated-sources/annotations" />
@@ -50,6 +51,7 @@
       <module name="PharmacyMS" options="-parameters" />
       <module name="ProfileMS" options="-parameters" />
       <module name="UserMS" options="-parameters" />
+      <module name="demo" options="-parameters" />
       <module name="hms-common" options="-parameters" />
       <module name="media" options="-parameters" />
       <module name="payment-ms" options="-parameters" />
