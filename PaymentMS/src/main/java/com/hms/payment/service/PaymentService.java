@@ -11,7 +11,7 @@ public interface PaymentService {
 
     void handleMomoCallback(Map<String, String> params);
 
-    void handleVnpayCallback(Map<String, String> params);
+//    void handleVnpayCallback(Map<String, String> params);
 
-    String getPaymentStatus(String orderId);
+//    String getPaymentStatus(String orderId);
 }

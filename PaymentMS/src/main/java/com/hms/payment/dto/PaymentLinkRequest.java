@@ -11,18 +11,17 @@ import java.math.BigDecimal;
 public class PaymentLinkRequest {
 
     @NotBlank
-    private String orderId;      // ví dụ: "45" (service sẽ thêm timestamp phía sau)
+    private Long saleId;      // ví dụ: "45" (service sẽ thêm timestamp phía sau)
 
     @NotNull
     @Positive
     private BigDecimal amount;
 
-    @NotBlank
-    private String orderInfo;
+//    @NotBlank
+//    private String orderInfo;
 
     @NotBlank
     private String providerName; // "momo" | "vnpay" | "chuyenkhoan"
 
-    // có thể lấy từ request nếu client không gửi
-    private String ipAddr;
+    private String returnUrl;
 }

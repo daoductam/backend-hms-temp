@@ -1,9 +1,6 @@
 package com.hms.PharmacyMS.api;
 
-import com.hms.PharmacyMS.dto.ResponseDTO;
-import com.hms.PharmacyMS.dto.SaleDTO;
-import com.hms.PharmacyMS.dto.SaleItemDTO;
-import com.hms.PharmacyMS.dto.SaleRequest;
+import com.hms.PharmacyMS.dto.*;
 import com.hms.PharmacyMS.entity.Sale;
 import com.hms.PharmacyMS.service.SaleItemService;
 import com.hms.PharmacyMS.service.SaleService;
@@ -23,8 +20,16 @@ public class SaleAPI {
     private final SaleItemService saleItemService;
 
     @PostMapping("/create")
-    public ResponseEntity<Long> createSale(@RequestBody SaleRequest dto) {
-        return  new ResponseEntity<>(saleService.createSale(dto), HttpStatus.CREATED);
+    public ResponseEntity<SaleResponseDTO> createSale(@RequestBody SaleRequest dto) {
+        return new ResponseEntity<>(saleService.createSale(dto), HttpStatus.CREATED);
+    }
+
+    // API xác nhận thanh toán (Internal - Chỉ PaymentMS gọi)
+    // URL: /pharmacy/sales/internal/confirm?saleId=123
+    @PostMapping("/internal/confirm")
+    public ResponseEntity<Void> confirmPayment(@RequestParam Long saleId) {
+        saleService.confirmPaymentSuccess(saleId);
+        return ResponseEntity.ok().build();
     }
 
     @PutMapping("/update")

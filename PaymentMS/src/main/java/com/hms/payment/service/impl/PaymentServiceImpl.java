@@ -21,145 +21,71 @@ public class PaymentServiceImpl implements PaymentService {
     private final PaymentRepository paymentRepository;
     private final RestTemplate restTemplate;
 
-    // tương đương BOOKING_SERVICE_URL = 'http://localhost:4003'
-    @Value("${booking.service.url:http://localhost:4003}")
-    private String bookingServiceUrl;
+    // URL của Pharmacy Service (cấu hình trong application.properties)
+    // Ví dụ: http://localhost:8082/pharmacy/sales/internal/confirm
+    @Value("${service.pharmacy.confirm-url}")
+    private String pharmacyConfirmUrl;
 
     @Override
     public PaymentLinkResponse createPaymentLink(PaymentLinkRequest req, String clientIp) {
+        // Tạo mã đơn hàng unique cho cổng thanh toán: SALEID_TIMESTAMP
+        String orderIdWithTs = req.getSaleId() + "_" + System.currentTimeMillis();
 
-        // Node: orderIdWithTimestamp = `${orderId}_${Date.now()}`
-        String orderIdWithTs = req.getOrderId() + "_" + Instant.now().toEpochMilli();
+        // --- GIẢ LẬP LOGIC TẠO URL (Bạn thay code thật của Momo/VNPay vào đây) ---
+        String payUrl = "https://test-payment.momo.vn/v2/gateway/api/create?orderId=" + orderIdWithTs;
+        // ------------------------------------------------------------------------
 
-        BigDecimal amount = req.getAmount();
-        String providerName = req.getProviderName().toLowerCase();
-
-        String payUrl = null;
-        String qrCodeUrl = null;
-        String deeplink = null;
-
-        switch (providerName) {
-            case "momo" -> {
-                // TODO: gọi Momo real API & sinh chữ ký
-                payUrl = "https://test-payment.momo.vn/payment/" + orderIdWithTs;
-            }
-            case "vnpay" -> {
-                // TODO: build vnp_Params, ký SHA512, tạo VNPay URL thật
-                payUrl = "https://sandbox.vnpayment.vn/payment/" + orderIdWithTs;
-            }
-            case "chuyenkhoan" -> {
-                // TODO: gọi VietQR API thật để lấy QR code
-                qrCodeUrl = "https://api.vietqr.io/img/" + orderIdWithTs;
-            }
-            default -> throw new IllegalArgumentException("Unsupported provider: " + providerName);
-        }
-
-        // Lưu Payment (tương đương Payment.create(...) trong Node)
+        // Lưu thông tin thanh toán ban đầu
         Payment payment = Payment.builder()
-                .bookingId(parseBookingId(req.getOrderId()))
-                .amount(amount)
-                .provider(providerName)
-                .transId(null)     // sẽ cập nhật khi callback
-                .resultCode(null)  // cập nhật sau
+                .saleId(req.getSaleId())
+                .amount(req.getAmount())
+                .provider(req.getProviderName())
                 .build();
         paymentRepository.save(payment);
 
         return PaymentLinkResponse.builder()
-                .provider(providerName)
                 .orderId(orderIdWithTs)
-                .amount(amount)
                 .payUrl(payUrl)
-                .qrCodeUrl(qrCodeUrl)
-                .deeplink(deeplink)
+                .amount(req.getAmount())
                 .build();
     }
 
     @Override
     public void handleMomoCallback(Map<String, String> data) {
-        // TODO: verify chữ ký Momo giống code Node
-
-        String orderIdWithTs = data.get("orderId");
-        Integer resultCode = Integer.valueOf(data.get("resultCode"));
+        // 1. Lấy thông tin từ Webhook Momo
+        String orderIdWithTs = data.get("orderId"); // VD: 101_1702345678
         String transId = data.get("transId");
+        int resultCode = Integer.parseInt(data.get("resultCode"));
 
-        Long realBookingId = parseBookingId(orderIdWithTs);
+        // 2. Tách lấy Sale ID gốc
+        Long realSaleId = Long.parseLong(orderIdWithTs.split("_")[0]);
 
-        Payment payment = Payment.builder()
-                .bookingId(realBookingId)
-                .amount(new BigDecimal(data.getOrDefault("amount", "0")))
-                .provider("momo")
-                .transId(transId)
-                .resultCode(resultCode)
-                .build();
+        // 3. Tìm Payment trong DB (bản ghi mới nhất của saleId này)
+        // Lưu ý: Nên dùng findTopBySaleIdOrderByIdDesc trong Repository
+        Payment payment = paymentRepository.findTopBySaleIdOrderByIdDesc(realSaleId)
+                .orElseThrow(() -> new RuntimeException("Payment info not found for Sale ID: " + realSaleId));
+
+        // 4. Cập nhật kết quả thanh toán
+        payment.setTransId(transId);
+        payment.setResultCode(resultCode);
         paymentRepository.save(payment);
 
+        // 5. Nếu thành công (resultCode = 0) -> Gọi PharmacyMS để update Sale
         if (resultCode == 0) {
-            restTemplate.postForObject(
-                    bookingServiceUrl + "/update-status",
-                    Map.of("bookingId", realBookingId, "status", "CONFIRMED"),
-                    Void.class
-            );
+            try {
+                // Gọi API nội bộ của Pharmacy
+                restTemplate.postForObject(
+                        pharmacyConfirmUrl + "?saleId=" + realSaleId,
+                        null,
+                        Void.class
+                );
+                System.out.println("Updated Pharmacy Order Status: SUCCESS");
+            } catch (Exception e) {
+                System.err.println("Failed to call PharmacyMS: " + e.getMessage());
+                // Có thể implement cơ chế Retry ở đây (Queue/Job)
+            }
         }
     }
 
-    @Override
-    public void handleVnpayCallback(Map<String, String> vnpParams) {
-        // TODO: verify chữ ký VNPay giống code Node
 
-        String txnRef = vnpParams.get("vnp_TxnRef"); // orderIdWithTs
-        String responseCode = vnpParams.get("vnp_ResponseCode");
-        String transId = vnpParams.get("vnp_TransactionNo");
-
-        Long realBookingId = parseBookingId(txnRef);
-
-        BigDecimal amount = BigDecimal.ZERO;
-        try {
-            amount = new BigDecimal(vnpParams.getOrDefault("vnp_Amount", "0"))
-                    .divide(BigDecimal.valueOf(100)); // VNPay thường *100
-        } catch (NumberFormatException ignored) {
-        }
-
-        Payment payment = Payment.builder()
-                .bookingId(realBookingId)
-                .amount(amount)
-                .provider("vnpay")
-                .transId(transId)
-                .resultCode(responseCode != null ? Integer.valueOf(responseCode) : null)
-                .build();
-        paymentRepository.save(payment);
-
-        if ("00".equals(responseCode)) {
-            restTemplate.postForObject(
-                    bookingServiceUrl + "/update-status",
-                    Map.of("bookingId", realBookingId, "status", "CONFIRMED"),
-                    Void.class
-            );
-        }
-    }
-
-    @Override
-    public String getPaymentStatus(String orderIdWithTs) {
-        Long realBookingId = parseBookingId(orderIdWithTs);
-
-        try {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> resp = restTemplate.getForObject(
-                    bookingServiceUrl + "/status/" + realBookingId,
-                    Map.class
-            );
-            if (resp == null) return "NOT_FOUND";
-            Object status = resp.get("status");
-            return status != null ? status.toString() : "NOT_FOUND";
-        } catch (Exception ex) {
-            return "NOT_FOUND";
-        }
-    }
-
-    private Long parseBookingId(String orderIdWithTs) {
-        if (orderIdWithTs == null) return null;
-        String idStr = orderIdWithTs.contains("_")
-                ? orderIdWithTs.split("_")[0]
-                : orderIdWithTs;
-        return Long.valueOf(idStr);
-    }
 }

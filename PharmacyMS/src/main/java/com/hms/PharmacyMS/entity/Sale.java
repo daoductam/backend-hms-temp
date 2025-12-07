@@ -1,10 +1,7 @@
 package com.hms.PharmacyMS.entity;
 
 import com.hms.PharmacyMS.dto.SaleDTO;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
@@ -24,6 +21,8 @@ public class Sale {
     private String buyerContact;
     private LocalDateTime saleDate;
     private Double totalAmount;
+    @Column(columnDefinition = "VARCHAR(20) DEFAULT 'PENDING'")
+    private String status;
 
     public Sale(Long id) {
         this.id = id;
@@ -36,6 +35,8 @@ public class Sale {
                 .buyerName(buyerName)
                 .buyerContact(buyerContact)
                 .saleDate(saleDate)
-                .totalAmount(totalAmount).build();
+                .totalAmount(totalAmount)
+                .status(status)
+                .build();
     }
 }

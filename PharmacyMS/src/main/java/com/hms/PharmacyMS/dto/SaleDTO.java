@@ -18,6 +18,7 @@ public class SaleDTO {
     private String buyerContact;
     private LocalDateTime saleDate;
     private Double totalAmount;
+    private String status;
 
     public Sale toEntity() {
         return Sale.builder()
@@ -26,6 +27,7 @@ public class SaleDTO {
                 .buyerName(buyerName)
                 .buyerContact(buyerContact)
                 .saleDate(saleDate)
+                .status(status)
                 .totalAmount(totalAmount).build();
     }
 

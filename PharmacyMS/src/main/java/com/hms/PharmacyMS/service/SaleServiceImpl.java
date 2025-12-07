@@ -1,8 +1,7 @@
 package com.hms.PharmacyMS.service;
 
-import com.hms.PharmacyMS.dto.SaleDTO;
-import com.hms.PharmacyMS.dto.SaleItemDTO;
-import com.hms.PharmacyMS.dto.SaleRequest;
+import com.hms.PharmacyMS.clients.PaymentClient;
+import com.hms.PharmacyMS.dto.*;
 import com.hms.PharmacyMS.entity.Sale;
 import com.hms.PharmacyMS.exception.ErrorCode;
 import com.hms.PharmacyMS.exception.HmsException;
@@ -11,6 +10,7 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -21,10 +21,11 @@ public class SaleServiceImpl implements SaleService{
     private final SaleRepository saleRepository;
     private final SaleItemService saleItemService;
     private final MedicineInventoryService medicineInventoryService;
+    private final PaymentClient paymentClient;
 
     @Override
     @Transactional
-    public Long createSale(SaleRequest dto) {
+    public SaleResponseDTO createSale(SaleRequest dto) {
         if (dto.getPrescriptionId()!=null && saleRepository.existsByPrescriptionId(dto.getPrescriptionId())) {
             throw new HmsException(ErrorCode.SALE_ALREADY_EXISTS);
         }
@@ -41,10 +42,46 @@ public class SaleServiceImpl implements SaleService{
                 .buyerContact(dto.getBuyerContact())
                 .saleDate(LocalDateTime.now())
                 .totalAmount(dto.getTotalAmount())
+                .status("PENDING")
                 .build();
         sale = saleRepository.save(sale);
         saleItemService.createSaleItems(sale.getId(), dto.getSaleItems());
-        return sale.getId();
+        // 3. Gọi PaymentMS để lấy link thanh toán
+        String paymentUrl = "";
+        try {
+            PaymentRequestDTO payReq = new PaymentRequestDTO();
+            payReq.setSaleId(sale.getId());
+            payReq.setAmount(BigDecimal.valueOf(sale.getTotalAmount()));
+            payReq.setProviderName("momo"); // Mặc định hoặc lấy từ request
+            payReq.setReturnUrl("http://localhost:3000/payment-success"); // Frontend URL
+
+            PaymentLinkResponse payRes = paymentClient.createPayment(payReq);
+            paymentUrl = payRes.getPayUrl();
+        } catch (Exception e) {
+            e.printStackTrace();
+            // Có thể log lỗi nhưng không throw exception để giữ đơn hàng đã tạo
+            paymentUrl = "ERROR_GENERATING_LINK";
+        }
+
+        // 4. Trả về kết quả cho Frontend
+        return SaleResponseDTO.builder()
+                .saleId(sale.getId())
+                .status(sale.getStatus())
+                .paymentUrl(paymentUrl) // Frontend sẽ redirect user theo link này
+                .build();
+    }
+
+    // Hàm cập nhật trạng thái (Dành cho Internal API)
+    @Override
+    public void confirmPaymentSuccess(Long saleId) {
+        Sale sale = saleRepository.findById(saleId)
+                .orElseThrow(() -> new HmsException(ErrorCode.SALE_NOT_FOUND));
+
+        if (!"PAID".equals(sale.getStatus())) {
+            sale.setStatus("PAID");
+            saleRepository.save(sale);
+            System.out.println("Sale " + saleId + " confirmed as PAID.");
+        }
     }
 
     @Override
